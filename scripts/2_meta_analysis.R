@@ -4,14 +4,11 @@ source(here::here("scripts", "0_load_packages_data.R"))
 
 # join with larger EMA review data to pull in quality indicators, study design, etc
 
-data_large_review <- read_rds(here::here("data", "large_review_clean.rds")) %>%
+df_joined <- read_rds(here::here("data", "updated_review_clean.rds")) %>%
   mutate(id = case_when(str_detect(id, "[abcdef]") ~ as.character(id),
-                        TRUE ~ as.character(as.integer(id))))
-
-data_joined <- data_large_review %>%
-  filter(id %in% data_descriptives$id)
-
-df_joined <- subset(data_joined, author!="Scholz")
+                        TRUE ~ as.character(as.integer(id))),
+         across(any_of(c("mean_age", "female_sex_percentage", "ethnicity_white_percentage", "study_duration_days")), as.numeric)) %>%
+  filter(author != "Scholz")
 
 vars <- c("id", "mean_age", "female_sex_percentage", "ethnicity_white_percentage",
           "EMA_study_type", "study_duration_days", "incentive_schedule",
@@ -22,11 +19,10 @@ df_joined_red <- df_joined %>%
 
 # join with descriptives data frame
 
-df_desc <- left_join(df_joined_red, data_descriptives)
-
-# join with meta analysis data frame
-
-df_all <- left_join(df_desc, data_meta_analysis, by = "id")
+df_all <- full_join(df_joined_red, data_meta_analysis, by = "id") %>%
+  left_join(data_descriptives %>%
+              mutate(id = as.character(id)) %>%
+              select(id, mean_cpd, cessation_support_beh, cessation_support_pharm), by = "id")
 
 summary(df_all)
 
@@ -45,14 +41,14 @@ data <- df_all %>%
                               TRUE ~ mean_age),
          female_sex_percentage = case_when(is.na(female_sex_percentage) ~ 56.1,
                                            TRUE ~ female_sex_percentage),
-         ethnicity_white_percentage = case_when(is.na(ethnicity_white_percentage) ~ 83,
+         ethnicity_white_percentage = case_when(is.na(ethnicity_white_percentage) ~ 81.7,
                                                 TRUE ~ ethnicity_white_percentage),
          mean_cpd = case_when(is.na(mean_cpd) ~ 21.4,
                               TRUE ~ mean_cpd))
 
 # retain vars with sufficient variability for moderator analyses
 
-vars1 <- c("author.x", "year", "study_nr.y",
+vars1 <- c("author", "year", "study_nr",
            "mean_age", "female_sex_percentage", 
            "ethnicity_white_percentage",
            "mean_cpd",
@@ -62,19 +58,22 @@ vars1 <- c("author.x", "year", "study_nr.y",
            "incentive_schedule", 
            "random_intercept_within",
            "random_slope_within",
-           "quality3",
+           "quality1", "quality2",
+           "quality3", "quality4",
            "ema_psych_context_predictor", 
            "ema_psych_context_predictor_coding",
            "es_id", "logOR_within",
-           "logOR_SE_within")
+           "logOR_SE_within",
+           "time_lag_nr")
 
 data1 <- data %>%
   select(any_of(vars1)) %>%
   filter(!is.na(logOR_within)) %>%
-  mutate(author = as.factor(author.x),
+  mutate(author = as.factor(author),
+         study_nr = as.factor(study_nr),
          ema_psych_context_predictor_coding = as.factor(ema_psych_context_predictor_coding),
          random_slope_within = as.factor(random_slope_within),
-         study_nr = as.numeric(study_nr.y),
+         study_nr = as.numeric(study_nr),
          quality3 = as.factor(quality3),
          mean_age = as.numeric(mean_age),
          female_sex_percentage = as.numeric(female_sex_percentage),
@@ -110,12 +109,6 @@ data1$random_slope_within <- relevel(data1$random_slope_within, "No/not reported
 
 summary(data1)
 
-# count number of studies with data suitable for meta-analysis
-
-data1 %>%
-  mutate(study_nr = as.factor(study_nr)) %>%
-  count(study_nr)
-
 # if k > 10, run meta-analysis
 
 data1 %>%
@@ -127,19 +120,37 @@ data1 %>%
 df1 <- data1 %>%
   filter(ema_psych_context_predictor_coding == "negative feeling states")
 
-df1.model <- rma.mv(yi = logOR_within, 
-                     V = logOR_SE_within, 
+# check time lag
+
+df1 %>%
+  summarise(time_lag_nr)
+
+# summarise quality of these studies
+
+df1 %>%
+  janitor::tabyl(quality1)
+
+df1 %>%
+  janitor::tabyl(quality2)
+
+df1 %>%
+  janitor::tabyl(quality3)
+
+df1 %>%
+  janitor::tabyl(quality4)
+
+# fitting simple random-effects model (rather than multilevel) given 0% between-study heterogeneity was observed in a previous multilevel model
+
+df1.model <- rma(yi = logOR_within, 
+                     vi = logOR_SE_within, 
                      slab = author,
                      data = df1,
-                     random = ~ 1 | author/es_id, 
                      test = "z", 
                      method = "REML")
 
 summary(df1.model)
 
-df1_i2 <- var.comp(df1.model)
-
-summary(df1_i2)
+df1.model$I2
 
 png(here("outputs", "df1.model.forest.png"), width = 600, height = 600)
 
@@ -150,7 +161,7 @@ forest.rma(df1.model, transf = exp, ilab.xpos = c(-0.25), cex=1,
            xlab = "Odds Ratio",
            mlab="")
 text(-11.7, - 1, pos = 4, font = 2, bquote(paste("Random Effects Model, I²", " = ",
-                                              .(formatC(df1_i2[["totalI2"]] , digits = 1, format = "f")), "%")))
+                                              .(formatC(df1.model$I2, digits = 1, format = "f")), "%")))
 
 dev.off()
 
@@ -171,27 +182,11 @@ df1.model.egg <- rma.mv(yi = logOR_within,
                          V = logOR_SE_within, 
                          slab = author,
                          data = df1,
-                         random = ~ 1 | author/es_id, 
                          test = "z", 
                          method = "REML",
                          mods = ~ logOR_SE_within)
 
 summary(df1.model.egg)
-
-# moderator analysis
-
-df1.model.mods <- rma.mv(yi = logOR_within, 
-                         V = logOR_SE_within, 
-                         slab = author,
-                         data = df1,
-                         random = ~ 1 | author/es_id, 
-                         test = "z", 
-                         method = "REML",
-                         mods = ~ mean_age + female_sex_percentage + ethnicity_white_percentage +
-                           mean_cpd + cessation_support + EMA_study_type + study_duration_days + 
-                           incentive_schedule + random_intercept_within + random_slope_within + quality3)
-
-summary(df1.model.mods)
 
 # sensitivity analysis with robust variance estimation
 
@@ -212,6 +207,27 @@ print(df1.model.rve)
 
 df2 <- data1 %>%
   filter(ema_psych_context_predictor_coding == "environmental and social cues")
+
+# check time lag
+
+df2 %>%
+  summarise(time_lag_nr)
+
+# summarise quality of these studies
+
+df2 %>%
+  janitor::tabyl(quality1)
+
+df2 %>%
+  janitor::tabyl(quality2)
+
+df2 %>%
+  janitor::tabyl(quality3)
+
+df2 %>%
+  janitor::tabyl(quality4)
+
+# fit model
 
 df2.model <- rma.mv(yi = logOR_within, 
                     V = logOR_SE_within, 
@@ -236,15 +252,18 @@ forest.rma(df2.model, transf = exp, ilab.xpos = c(-0.25), cex=1,
            xlab = "Odds Ratio",
            mlab="")
 text(-135, - 1, pos = 4, font = 2, bquote(paste("Random Effects Model, I²", " = ",
-                                                 .(formatC(df1_i2[["totalI2"]] , digits = 1, format = "f")), "%")))
+                                                 .(formatC(df2_i2[["totalI2"]] , digits = 1, format = "f")), "%")))
 
 dev.off()
 
-# leave-one-out sensitivity analysis
+# leave-one-out sensitivity analysis (now removing all O'Connell studies)
 
 df2_sens <- data1 %>%
   filter(ema_psych_context_predictor_coding == "environmental and social cues",
+         es_id != "id_42",
+         es_id != "id_43",
          es_id != "id_45",
+         es_id != "id_46",
          es_id != "id_51")
 
 df2.model.sens <- rma.mv(yi = logOR_within, 
@@ -317,6 +336,29 @@ df2_mod_i2 <- var.comp(df2.model.mods)
 
 summary(df2_mod_i2)
 
+# generate table for supplementary materials
+
+mod_table_1 <- coef(summary(df2.model.mods))
+
+mod_table_1$moderators <- row.names(mod_table_1)
+
+row.names(mod_table_1) <- NULL
+
+mod_table_1_a <- mod_table_1[,c(7,1,4,5,6)]
+
+mod_table_1_b <- mod_table_1_a %>%
+  mutate(moderators = str_replace_all(moderators, "_", " "),
+         moderators = str_replace(moderators, "intrcpt", "intercept"),
+         moderators = str_replace(moderators, "cessation supportBehavioural support only", "behavioural support only"),
+         moderators = str_replace(moderators, "cessation supportCombined support", "combined support"),
+         moderators = str_replace(moderators, "random slope withinYes", "random slope within"),
+         moderators = str_to_sentence(moderators),
+         moderators = str_replace(moderators, "cpd", "CPD"),
+         OR = paste0(round(exp(estimate),2), " (", round(exp(ci.lb),2), "-", round(exp(ci.ub),2), ")")) %>%
+  select(moderators, OR, pval)
+
+flextable(mod_table_1_b) %>% save_as_docx(path = here("outputs", "mod_table_1_b.docx"))
+
 # sensitivity analysis with robust variance estimation
 
 yi = df2$logOR_within
@@ -337,11 +379,32 @@ print(df2.model.rve)
 df3 <- data1 %>%
   filter(ema_psych_context_predictor_coding == "cravings")
 
+# check time lag
+
+df3 %>%
+  summarise(time_lag_nr)
+
+# summarise quality of these studies
+
+df3 %>%
+  janitor::tabyl(quality1)
+
+df3 %>%
+  janitor::tabyl(quality2)
+
+df3 %>%
+  janitor::tabyl(quality3)
+
+df3 %>%
+  janitor::tabyl(quality4)
+
+# fit model
+
 df3.model <- rma.mv(yi = logOR_within, 
                     V = logOR_SE_within, 
                     slab = author,
                     data = df3,
-                    random = ~ 1 | author/es_id, 
+                    random = ~ 1 | author/es_id,
                     test = "z", 
                     method = "REML")
 
@@ -360,7 +423,7 @@ forest.rma(df3.model, transf = exp, ilab.xpos = c(-0.25), cex=1,
            xlab = "Odds Ratio",
            mlab="")
 text(-5.2, - 1, pos = 4, font = 2, bquote(paste("Random Effects Model, I²", " = ",
-                                                .(formatC(df2_i2[["totalI2"]] , digits = 1, format = "f")), "%")))
+                                                .(formatC(df3_i2[["totalI2"]] , digits = 1, format = "f")), "%")))
 
 dev.off()
 
@@ -403,6 +466,29 @@ summary(df3.model.mods)
 df3_mod_i2 <- var.comp(df3.model.mods)
 
 summary(df3_mod_i2)
+
+# generate table for supplementary materials
+
+mod_table_2 <- coef(summary(df3.model.mods))
+
+mod_table_2$moderators <- row.names(mod_table_2)
+
+row.names(mod_table_2) <- NULL
+
+mod_table_2_a <- mod_table_2[,c(7,1,4,5,6)]
+
+mod_table_2_b <- mod_table_2_a %>%
+  mutate(moderators = str_replace_all(moderators, "_", " "),
+         moderators = str_replace(moderators, "intrcpt", "intercept"),
+         moderators = str_replace(moderators, "cessation supportBehavioural support only", "behavioural support only"),
+         moderators = str_replace(moderators, "cessation supportPharmacological support only", "pharmacological support only"),
+         moderators = str_replace(moderators, "quality3Not reported", "quality 3 not reported"),
+         moderators = str_to_sentence(moderators),
+         moderators = str_replace(moderators, "cpd", "CPD"),
+         OR = paste0(round(exp(estimate),2), " (", round(exp(ci.lb),2), "-", round(exp(ci.ub),2), ")")) %>%
+  select(moderators, OR, pval)
+
+flextable(mod_table_2_b) %>% save_as_docx(path = here("outputs", "mod_table_2_b.docx"))
 
 # sensitivity analysis with robust variance estimation
 

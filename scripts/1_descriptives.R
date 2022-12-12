@@ -7,7 +7,8 @@ lapse_coding %>%
          id != "377a" & id!="377b") %>%
   count(lapse_coding_final) %>%
   arrange(-n) %>%
-  mutate(prop = n/45*100)
+  mutate(sum = sum(n)) %>%
+  mutate(prop = n/sum*100)
 
 # definition of relapse ---------------------------------------------------
 
@@ -16,7 +17,8 @@ relapse_coding %>%
          id != "377a" & id!="377b") %>%
   count(relapse_coding_final) %>%
   arrange(-n) %>%
-  mutate(prop = n/33*100)
+  mutate(sum = sum(n)) %>%
+  mutate(prop = n/sum*100)
 
 # theoretical underpinning ------------------------------------------------
 
@@ -25,7 +27,8 @@ theory_coding %>%
          id != "377a" & id!="377b") %>%
   count(theory_coding_final) %>%
   arrange(-n) %>%
-  mutate(prop = n/31*100)
+  mutate(sum = sum(n)) %>%
+  mutate(prop = n/sum*100)
 
 # join with larger EMA review data ----------------------------------------
 
@@ -36,7 +39,13 @@ data_large_review <- read_rds(here::here("data", "large_review_clean.rds")) %>%
 data_joined <- data_large_review %>%
   filter(id %in% data_descriptives$id)
 
-df_joined <- subset(data_joined, id!="377a" & id!="377b" & author!="Scholz")
+df_join <- list(data_joined, updated_search_descriptives_clean) %>%
+  data.table::rbindlist(fill = T) %>%
+  tibble()
+
+write_rds(df_join, here("data", "updated_review_clean.rds"))
+
+df_joined <- subset(df_join, id!="377a" & id!="377b" & author!="Scholz")
 
 # create table 1 ----------------------------------------------------------
 
@@ -65,7 +74,11 @@ table_1_prep_recode <- table_1_prep %>%
   mutate(incentive_schedule_recode = recode(incentive_schedule, "NR" = "Not reported"),
          EMA_intervention_level_recode = recode(EMA_intervention_level, "NA" = "Not applicable"),
          country_recode = recode(country, "NR" = "Not reported"),
-         sample_size_analytic_sample = as.numeric(sample_size_analytic_sample))
+         sample_size_analytic_sample = as.numeric(sample_size_analytic_sample),
+         mean_age = as.numeric(mean_age),
+         female_sex_percentage = as.numeric(female_sex_percentage),
+         ethnicity_white_percentage = as.numeric(ethnicity_white_percentage),
+         education_university_percentage = as.numeric(education_university_percentage))
 
 mylabels <- list(country_recode = "Country", research_funded = "Research funding", society_funded = "Society funding", 
                  charity_funded = "Charity funding", university_health_institution_funded = "University/Health institution funding",
@@ -91,11 +104,13 @@ write2word(t1_total,here("outputs","table1_total.doc"))
 
 ### add cigarettes per day, number of quit attempts, smoking cessation support
 
-# cpd
+# included studies
 
 data_descriptives %>% 
   filter(id != "377a" & id!="377b") %>%
   count()
+
+# cpd
 
 data_descriptives %>% 
   filter(!is.na(mean_cpd),
@@ -148,7 +163,7 @@ df_joined <- df_joined %>%
 table_2_prep_recode <- df_joined %>%
   mutate(burst_design_recode = recode(burst_design, "yes" = "Yes"),
          own_device_EMA_recode = recode(own_device_EMA, "NR" = "Not reported"),
-         EMA_delivery_mode_recode = recode(EMA_delivery_mode, "Smartphone app" = "Mobile phone - app"),
+         EMA_delivery_mode_recode = recode(EMA_delivery_mode, "Smartphone app" = "Mobile phone - app", "NR" = "Not reported"),
          adherence_cutoff_recode = recode(adherence_cutoff, "no" = "No",
                                           "yes" = "Yes",
                                           "NR" = "Not reported"),

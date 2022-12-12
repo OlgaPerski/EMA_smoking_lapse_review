@@ -12,18 +12,21 @@ pkgs <- c("here",
           "arsenal",
           "robumeta",
           "dmetar",
-          "cowplot")
+          "cowplot",
+          "flextable")
 
 pacman::p_load(pkgs, character.only=T)
 
 # load data ---------------------------------------------------------------
 
-data_descriptives <- read_xlsx(here("data","Smoking Lapse Review Data Extraction.xlsx"), sheet = "additional_descriptives")
+updated_search_descriptives_clean <- read_xlsx(here("data","Smoking Lapse Review.xlsx"), sheet = "updated_search_descriptives_cle")
 
-lapse_coding <- read_xlsx(here("data","Smoking Lapse Review Data Extraction.xlsx"), sheet = "lapse_coding")
+data_descriptives <- read_xlsx(here("data","Smoking Lapse Review.xlsx"), sheet = "additional_descriptives")
 
-relapse_coding <- read_xlsx(here("data","Smoking Lapse Review Data Extraction.xlsx"), sheet = "relapse_coding")
+lapse_coding <- read_xlsx(here("data","Smoking Lapse Review.xlsx"), sheet = "lapse_coding")
 
-theory_coding <- read_xlsx(here("data","Smoking Lapse Review Data Extraction.xlsx"), sheet = "theory_coding")
+relapse_coding <- read_xlsx(here("data","Smoking Lapse Review.xlsx"), sheet = "relapse_coding")
 
-data_meta_analysis <- read_xlsx(here("data","Smoking Lapse Review Data Extraction.xlsx"), sheet = "meta_analysis_clean")
+theory_coding <- read_xlsx(here("data","Smoking Lapse Review.xlsx"), sheet = "theory_coding")
+
+data_meta_analysis <- read_xlsx(here("data","Smoking Lapse Review.xlsx"), sheet = "meta_analysis_clean")

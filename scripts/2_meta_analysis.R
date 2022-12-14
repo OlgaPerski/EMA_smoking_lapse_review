@@ -115,31 +115,17 @@ data1 %>%
   count(ema_psych_context_predictor_coding) %>%
   arrange(-n) # run for 1) negative feeling states, 2) environmental and social cues, 3) cravings
 
+# create study ID by author var
+
+data2 <- data1 %>%
+  mutate(author_study_nr = paste0(author, sep = " ", study_nr))
+
 # negative feeling states -------------------------------------------------
 
-df1 <- data1 %>%
+df1 <- data2 %>%
   filter(ema_psych_context_predictor_coding == "negative feeling states")
 
-# check time lag
-
-df1 %>%
-  summarise(time_lag_nr)
-
-# summarise quality of these studies
-
-df1 %>%
-  janitor::tabyl(quality1)
-
-df1 %>%
-  janitor::tabyl(quality2)
-
-df1 %>%
-  janitor::tabyl(quality3)
-
-df1 %>%
-  janitor::tabyl(quality4)
-
-# fitting simple random-effects model (rather than multilevel) given 0% between-study heterogeneity was observed in a previous multilevel model
+# fitting simpler two-level (rather than three-level) random-effects model as <1% between-study heterogeneity observed
 
 df1.model <- rma(yi = logOR_within, 
                      vi = logOR_SE_within, 
@@ -188,12 +174,36 @@ df1.model.egg <- rma.mv(yi = logOR_within,
 
 summary(df1.model.egg)
 
-# sensitivity analysis with robust variance estimation
+# sensitivity analysis with robust variance estimation, varying rho (0.2, 0.4, 0.6, 0.8)
 
 yi = df1$logOR_within
 vi = df1$logOR_SE_within
 
-df1.model.rve <- robu(formula = yi ~ 1, 
+df1.model.rve.02 <- robu(formula = yi ~ 1, 
+                      var.eff.size = vi,
+                      studynum = study_nr,
+                      modelweights = "CORR",
+                      rho = 0.2,
+                      small = TRUE,
+                      data = df1)
+
+df1.model.rve.04 <- robu(formula = yi ~ 1, 
+                      var.eff.size = vi,
+                      studynum = study_nr,
+                      modelweights = "CORR",
+                      rho = 0.4,
+                      small = TRUE,
+                      data = df1)
+
+df1.model.rve.06 <- robu(formula = yi ~ 1, 
+                      var.eff.size = vi,
+                      studynum = study_nr,
+                      modelweights = "CORR",
+                      rho = 0.6,
+                      small = TRUE,
+                      data = df1)
+
+df1.model.rve.08 <- robu(formula = yi ~ 1, 
                       var.eff.size = vi,
                       studynum = study_nr,
                       modelweights = "CORR",
@@ -201,31 +211,15 @@ df1.model.rve <- robu(formula = yi ~ 1,
                       small = TRUE,
                       data = df1)
 
-print(df1.model.rve)
+df1.rve.table <- tibble(df1.model.rve.02[["reg_table"]]) %>%
+  bind_rows(df1.model.rve.04[["reg_table"]]) %>%
+  bind_rows(df1.model.rve.06[["reg_table"]]) %>%
+  bind_rows(df1.model.rve.08[["reg_table"]])
 
 # environmental and social cues -------------------------------------------------
 
-df2 <- data1 %>%
+df2 <- data2 %>%
   filter(ema_psych_context_predictor_coding == "environmental and social cues")
-
-# check time lag
-
-df2 %>%
-  summarise(time_lag_nr)
-
-# summarise quality of these studies
-
-df2 %>%
-  janitor::tabyl(quality1)
-
-df2 %>%
-  janitor::tabyl(quality2)
-
-df2 %>%
-  janitor::tabyl(quality3)
-
-df2 %>%
-  janitor::tabyl(quality4)
 
 # fit model
 
@@ -233,7 +227,7 @@ df2.model <- rma.mv(yi = logOR_within,
                     V = logOR_SE_within, 
                     slab = author,
                     data = df2,
-                    random = ~ 1 | author/es_id, 
+                    random = ~ 1 | author_study_nr/es_id, 
                     test = "z", 
                     method = "REML")
 
@@ -258,7 +252,7 @@ dev.off()
 
 # leave-one-out sensitivity analysis (now removing all O'Connell studies)
 
-df2_sens <- data1 %>%
+df2_sens <- data2 %>%
   filter(ema_psych_context_predictor_coding == "environmental and social cues",
          es_id != "id_42",
          es_id != "id_43",
@@ -270,7 +264,7 @@ df2.model.sens <- rma.mv(yi = logOR_within,
                     V = logOR_SE_within, 
                     slab = author,
                     data = df2_sens,
-                    random = ~ 1 | author/es_id, 
+                    random = ~ 1 | author_study_nr/es_id, 
                     test = "z", 
                     method = "REML")
 
@@ -310,25 +304,45 @@ df2.model.egg <- rma.mv(yi = logOR_within,
                         V = logOR_SE_within, 
                         slab = author,
                         data = df2,
-                        random = ~ 1 | author/es_id, 
+                        random = ~ 1 | author_study_nr/es_id, 
                         test = "z", 
                         method = "REML",
                         mods = ~ logOR_SE_within)
 
 summary(df2.model.egg)
 
-# moderator analysis
+# prep for moderator analysis
+
+# check cessation support var
+
+df2 %>%
+  janitor::tabyl(cessation_support) # remove due to low variability
+
+# check time lag
+
+df2 <- df2 %>%
+  mutate(time_lag_nr = as.factor(time_lag_nr)) 
+
+df2 %>%
+  janitor::tabyl(time_lag_nr)
+
+# check quality 3
+
+df2 %>%
+  janitor::tabyl(quality3) # remove due to low variability
+
+# run moderator analysis
 
 df2.model.mods <- rma.mv(yi = logOR_within, 
                          V = logOR_SE_within, 
                          slab = author,
                          data = df2,
-                         random = ~ 1 | author/es_id, 
+                         random = ~ 1 | author_study_nr/es_id, 
                          test = "z", 
                          method = "REML",
                          mods = ~ mean_age + female_sex_percentage + ethnicity_white_percentage +
-                           mean_cpd + cessation_support + EMA_study_type + study_duration_days + 
-                           incentive_schedule + random_intercept_within + random_slope_within + quality3)
+                           mean_cpd + EMA_study_type + study_duration_days + 
+                           incentive_schedule + random_intercept_within + random_slope_within + time_lag_nr)
 
 summary(df2.model.mods)
 
@@ -349,22 +363,45 @@ mod_table_1_a <- mod_table_1[,c(7,1,4,5,6)]
 mod_table_1_b <- mod_table_1_a %>%
   mutate(moderators = str_replace_all(moderators, "_", " "),
          moderators = str_replace(moderators, "intrcpt", "intercept"),
-         moderators = str_replace(moderators, "cessation supportBehavioural support only", "behavioural support only"),
-         moderators = str_replace(moderators, "cessation supportCombined support", "combined support"),
          moderators = str_replace(moderators, "random slope withinYes", "random slope within"),
          moderators = str_to_sentence(moderators),
          moderators = str_replace(moderators, "cpd", "CPD"),
+         moderators = str_replace(moderators, "Ema study typeinterventional", "EMA study type - Interventional"),
          OR = paste0(round(exp(estimate),2), " (", round(exp(ci.lb),2), "-", round(exp(ci.ub),2), ")")) %>%
   select(moderators, OR, pval)
 
 flextable(mod_table_1_b) %>% save_as_docx(path = here("outputs", "mod_table_1_b.docx"))
 
-# sensitivity analysis with robust variance estimation
+# sensitivity analysis with robust variance estimation, varying rho (0.2, 0.4, 0.6, 0.8)
 
 yi = df2$logOR_within
 vi = df2$logOR_SE_within
 
-df2.model.rve <- robu(formula = yi ~ 1, 
+df2.model.rve.02 <- robu(formula = yi ~ 1, 
+                      var.eff.size = vi,
+                      studynum = study_nr,
+                      modelweights = "CORR",
+                      rho = 0.2,
+                      small = TRUE,
+                      data = df2)
+
+df2.model.rve.04 <- robu(formula = yi ~ 1, 
+                      var.eff.size = vi,
+                      studynum = study_nr,
+                      modelweights = "CORR",
+                      rho = 0.4,
+                      small = TRUE,
+                      data = df2)
+
+df2.model.rve.06 <- robu(formula = yi ~ 1, 
+                      var.eff.size = vi,
+                      studynum = study_nr,
+                      modelweights = "CORR",
+                      rho = 0.6,
+                      small = TRUE,
+                      data = df2)
+
+df2.model.rve.08 <- robu(formula = yi ~ 1, 
                       var.eff.size = vi,
                       studynum = study_nr,
                       modelweights = "CORR",
@@ -372,31 +409,15 @@ df2.model.rve <- robu(formula = yi ~ 1,
                       small = TRUE,
                       data = df2)
 
-print(df2.model.rve)
+df2.rve.table <- tibble(df2.model.rve.02[["reg_table"]]) %>%
+  bind_rows(df2.model.rve.04[["reg_table"]]) %>%
+  bind_rows(df2.model.rve.06[["reg_table"]]) %>%
+  bind_rows(df2.model.rve.08[["reg_table"]])
 
 # cravings ----------------------------------------------------------------
 
-df3 <- data1 %>%
+df3 <- data2 %>%
   filter(ema_psych_context_predictor_coding == "cravings")
-
-# check time lag
-
-df3 %>%
-  summarise(time_lag_nr)
-
-# summarise quality of these studies
-
-df3 %>%
-  janitor::tabyl(quality1)
-
-df3 %>%
-  janitor::tabyl(quality2)
-
-df3 %>%
-  janitor::tabyl(quality3)
-
-df3 %>%
-  janitor::tabyl(quality4)
 
 # fit model
 
@@ -404,7 +425,7 @@ df3.model <- rma.mv(yi = logOR_within,
                     V = logOR_SE_within, 
                     slab = author,
                     data = df3,
-                    random = ~ 1 | author/es_id,
+                    random = ~ 1 | author_study_nr/es_id,
                     test = "z", 
                     method = "REML")
 
@@ -423,7 +444,7 @@ forest.rma(df3.model, transf = exp, ilab.xpos = c(-0.25), cex=1,
            xlab = "Odds Ratio",
            mlab="")
 text(-5.2, - 1, pos = 4, font = 2, bquote(paste("Random Effects Model, I²", " = ",
-                                                .(formatC(df3_i2[["totalI2"]] , digits = 1, format = "f")), "%")))
+                                                .(formatC(df3_i2[["totalI2"]], digits = 1, format = "f")), "%")))
 
 dev.off()
 
@@ -441,25 +462,45 @@ df3.model.egg <- rma.mv(yi = logOR_within,
                         V = logOR_SE_within, 
                         slab = author,
                         data = df3,
-                        random = ~ 1 | author/es_id, 
+                        random = ~ 1 | author_study_nr/es_id, 
                         test = "z", 
                         method = "REML",
                         mods = ~ logOR_SE_within)
 
 summary(df3.model.egg)
 
-# moderator analysis
+# prep for moderator analysis
+
+# check cessation support var
+
+df3 %>%
+  janitor::tabyl(cessation_support) # remove due to low variability
+
+# check time lag
+
+df3 <- df3 %>%
+  mutate(time_lag_nr = as.factor(time_lag_nr))
+
+df3 %>%
+  janitor::tabyl(time_lag_nr)
+
+# check quality 3
+
+df3 %>%
+  janitor::tabyl(quality3)
+
+# run moderator analyses
 
 df3.model.mods <- rma.mv(yi = logOR_within, 
                          V = logOR_SE_within, 
                          slab = author,
                          data = df3,
-                         random = ~ 1 | author/es_id, 
+                         random = ~ 1 | author_study_nr/es_id, 
                          test = "z", 
                          method = "REML",
                          mods = ~ mean_age + female_sex_percentage + ethnicity_white_percentage +
-                           mean_cpd + cessation_support + EMA_study_type + study_duration_days + 
-                           incentive_schedule + quality3) # model did not converge with model parameter vars included
+                           mean_cpd + EMA_study_type + study_duration_days + 
+                           incentive_schedule)
 
 summary(df3.model.mods)
 
@@ -480,22 +521,45 @@ mod_table_2_a <- mod_table_2[,c(7,1,4,5,6)]
 mod_table_2_b <- mod_table_2_a %>%
   mutate(moderators = str_replace_all(moderators, "_", " "),
          moderators = str_replace(moderators, "intrcpt", "intercept"),
-         moderators = str_replace(moderators, "cessation supportBehavioural support only", "behavioural support only"),
-         moderators = str_replace(moderators, "cessation supportPharmacological support only", "pharmacological support only"),
-         moderators = str_replace(moderators, "quality3Not reported", "quality 3 not reported"),
          moderators = str_to_sentence(moderators),
          moderators = str_replace(moderators, "cpd", "CPD"),
+         moderators = str_replace(moderators, "Ema study typeinterventional", "EMA study type - Interventional"),
+         moderators = str_replace(moderators, "Incentive scheduleflat payment", "Incentive schedule - Flat payment"),
          OR = paste0(round(exp(estimate),2), " (", round(exp(ci.lb),2), "-", round(exp(ci.ub),2), ")")) %>%
   select(moderators, OR, pval)
 
 flextable(mod_table_2_b) %>% save_as_docx(path = here("outputs", "mod_table_2_b.docx"))
 
-# sensitivity analysis with robust variance estimation
+# sensitivity analysis with robust variance estimation, varying rho (0.2, 0.4, 0.6, 0.8)
 
 yi = df3$logOR_within
 vi = df3$logOR_SE_within
 
-df3.model.rve <- robu(formula = yi ~ 1, 
+df3.model.rve.02 <- robu(formula = yi ~ 1, 
+                      var.eff.size = vi,
+                      studynum = study_nr,
+                      modelweights = "CORR",
+                      rho = 0.2,
+                      small = TRUE,
+                      data = df3)
+
+df3.model.rve.04 <- robu(formula = yi ~ 1, 
+                      var.eff.size = vi,
+                      studynum = study_nr,
+                      modelweights = "CORR",
+                      rho = 0.4,
+                      small = TRUE,
+                      data = df3)
+
+df3.model.rve.06 <- robu(formula = yi ~ 1, 
+                      var.eff.size = vi,
+                      studynum = study_nr,
+                      modelweights = "CORR",
+                      rho = 0.6,
+                      small = TRUE,
+                      data = df3)
+
+df3.model.rve.08 <- robu(formula = yi ~ 1, 
                       var.eff.size = vi,
                       studynum = study_nr,
                       modelweights = "CORR",
@@ -503,7 +567,10 @@ df3.model.rve <- robu(formula = yi ~ 1,
                       small = TRUE,
                       data = df3)
 
-print(df3.model.rve)
+df3.rve.table <- tibble(df3.model.rve.02[["reg_table"]]) %>%
+  bind_rows(df3.model.rve.04[["reg_table"]]) %>%
+  bind_rows(df3.model.rve.06[["reg_table"]]) %>%
+  bind_rows(df3.model.rve.08[["reg_table"]])
 
 ### plot effect sizes for the other constructs (apart from the 'other' category) to aid the narrative synthesis
 
